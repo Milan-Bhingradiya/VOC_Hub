@@ -1,9 +1,13 @@
 import requests
 from requests.auth import HTTPBasicAuth
 import json
+from urllib.parse import quote
+from pathlib import Path
 
-BASE_URL = "http://172.16.7.210:8081"
+BASE_URL = "http://confluence.matrixcomsec.org"
 auth = HTTPBasicAuth("shabbirhussain.bhaisaheb", "shabbirhussain")
+
+MAX_PAGES_TO_FETCH = 500
 
 def fetch(endpoint):
     try:
@@ -12,10 +16,43 @@ def fetch(endpoint):
     except:
         return {"error": "failed"}
 
+
+def fetch_all_content(content_type, expand_fields, max_total=MAX_PAGES_TO_FETCH, batch_size=100):
+    results = []
+    start = 0
+    size = 0
+
+    while len(results) < max_total:
+        endpoint = (
+            f"/rest/api/content?type={content_type}&start={start}&limit={batch_size}"
+            f"&expand={expand_fields}"
+        )
+        page = fetch(endpoint)
+        if "results" not in page:
+            return {"error": page.get("error", "Failed to fetch content")}
+
+        batch = page.get("results", [])
+        size = page.get("size", 0)
+        if not batch:
+            break
+
+        results.extend(batch)
+        start += len(batch)
+
+        if len(batch) < batch_size:
+            break
+
+    return {
+        "size": size,
+        "fetched": len(results),
+        "max_fetched_limit": max_total,
+        "results": results[:max_total],
+    }
+
 data = {}
 
 # Current User
-data['current_user'] = fetch("/rest/api/user/current")
+data['current_user'] = fetch("/rest/api/user/current?expand=status")
 
 # Groups
 data['groups'] = fetch("/rest/api/group?limit=100")
@@ -30,13 +67,28 @@ if 'results' in data['groups']:
             data['users'].extend(members['results'])
 
 # Spaces
-data['spaces'] = fetch("/rest/api/space?limit=100&expand=description,homepage,metadata.labels,permissions")
+data['spaces'] = fetch("/rest/api/space?limit=500&expand=description,homepage,metadata.labels,permissions")
 
 # Pages
-data['pages'] = fetch("/rest/api/content?type=page&limit=1000&expand=body.storage,version,space,history,metadata.labels,ancestors,children.comment")
+data['pages'] = fetch_all_content(
+    "page",
+    "body.storage,version,space,history,metadata.labels,ancestors,children.comment",
+)
 
 # Blog Posts
-data['blogposts'] = fetch("/rest/api/content?type=blogpost&limit=1000&expand=body.storage,version,space,history,metadata.labels")
+data['blogposts'] = fetch_all_content(
+    "blogpost",
+    "body.storage,version,space,history,metadata.labels",
+)
+
+# Full page details for the requested URL:
+# http://confluence.matrixcomsec.org/display/SPS/Safety+Module
+safety_title = quote('Safety Module')
+data['specific_pages'] = {
+    'SPS/Safety Module': fetch(
+        f"/rest/api/content?spaceKey=SPS&title={safety_title}&expand=body.storage,body.view,version,space,history,metadata.labels,ancestors,children.comment"
+    )
+}
 
 # Attachments (if pages exist)
 data['attachments'] = []
@@ -65,8 +117,9 @@ if 'results' in data['pages']:
 # Content templates
 data['templates'] = fetch("/rest/api/template?limit=100")
 
-# Save to file
-with open('confluence_data.json', 'w') as f:
+# Save to file next to this script
+output_file = Path(__file__).resolve().parent / 'confluence_data.json'
+with open(output_file, 'w') as f:
     json.dump(data, f, indent=2)
 
 print("=== CONFLUENCE DATA FETCHED ===\n")
@@ -80,4 +133,5 @@ print(f"✓ Attachments: {len(data['attachments'])}")
 print(f"✓ Comments: {len(data['comments'])}")
 print(f"✓ Labels: {len(data['labels'])}")
 print(f"✓ Templates: {len(data['templates'].get('results', []))}")
-print(f"\n✓ Data saved to confluence_data.json")
+print(f"✓ Specific Pages: {len(data['specific_pages'])}")
+print(f"\n✓ Data saved to {output_file}")
