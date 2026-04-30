@@ -1,78 +1,95 @@
 import json
 from sentence_transformers import SentenceTransformer
-from sqlalchemy import select, text
+from sqlalchemy import select
 from groq import Groq
 
 from app.db.database import SessionLocal
-from app.db.models import FeedbackRaw
+from app.db.models import FeedbackRaw, FeedbackProcessed
 from app.core.config import settings
-
 
 print("Loading embedding model (all-MiniLM-L6-v2)...")
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 client = Groq(api_key=settings.GROQ_API_KEY)
 
 def run_ai_pipeline(feedback_id: str):
-    """
-    Background worker: Extracts from raw, calls Groq LLM to classify, embeds, and saves to processed.
-    """
-    db = SessionLocal() 
+    db = SessionLocal()
     try:
         print(f"[AI PIPELINE] Waking up for {feedback_id}...")
-        
-        raw_record = db.execute(select(FeedbackRaw).where(FeedbackRaw.id == feedback_id)).scalar_one_or_none()
+
+        raw_record = db.execute(
+            select(FeedbackRaw).where(FeedbackRaw.id == feedback_id)
+        ).scalar_one_or_none()
+
         if not raw_record or not raw_record.raw_text:
             print(f"[AI PIPELINE] Aborted: No text found for {feedback_id}")
             return
-            
+
         if raw_record.processed:
-            print(f"[AI PIPELINE] {feedback_id} already processed. Skipping.")
+            print(f"[AI PIPELINE] {feedback_id} already processed flag set. Skipping.")
+            return
+        
+        existing = db.execute(
+            select(FeedbackProcessed).where(FeedbackProcessed.feedback_id == feedback_id)
+        ).scalar_one_or_none()
+        if existing:
+            print(f"[AI PIPELINE] {feedback_id} already exists in feedback_processed. Skipping.")
             return
 
         system_prompt = """
-        You are an AI data classifier for a B2B SaaS platform. 
+        You are an AI data classifier for a B2B SaaS platform.
         Analyze the customer feedback text and output ONLY a JSON object with:
-        1. "clean_text": The feedback rewritten into clear, professional sentences. Remove shorthand or typos.
-        2. "intents": A list of applicable categories from exactly this list: ["bug_report", "feature_request", "usability_complaint", "pricing_commercial", "process_complaint", "competitive_mention", "praise", "unclear"].
+        1. "clean_text": Rewrite the feedback in clear, professional sentences. Remove shorthand or typos.
+        2. "intents": A list from exactly: ["bug_report", "feature_request", "usability_complaint", 
+        "pricing_commercial", "process_complaint", "competitive_mention", "praise", "unclear"].
+        3. "sentiment_score": Float from -1.0 (very negative) to 1.0 (very positive).
+        4. "urgency_score": Float from 0.0 to 1.0.
+        Judge this based on:
+        - Is something broken and blocking the customer right now? (high)
+        - Is there revenue, compliance, or renewal at risk? (high)
+        - Is a competitor being considered as an alternative? (high)
+        - Is this a nice-to-have suggestion with no immediate pain? (low)
+        - Is this general feedback with no time pressure? (low)
+        Base this purely on the business impact and time sensitivity implied by the text.
         """
-        
+
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant", 
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Raw Text: {raw_record.raw_text}"}
             ],
-            response_format={ "type": "json_object" }
+            response_format={"type": "json_object"}
         )
-        
+
         ai_result = json.loads(response.choices[0].message.content)
         clean_text = ai_result.get("clean_text", raw_record.raw_text)
         intents = ai_result.get("intents", ["unclear"])
 
         embedding_vector = embedder.encode(clean_text).tolist()
 
+        urgency_score = round(max(0.0, min(1.0, float(ai_result.get("urgency_score", 0.0)))), 3)
+        sentiment_score = round(max(-1.0, min(1.0, float(ai_result.get("sentiment_score", 0.0)))), 3)
+
         meta = raw_record.metadata_col or {}
-        arr_value = float(meta.get("deal_amount_usd", meta.get("deal_amount", 0.0)))
-        
-        insert_query = text("""
-            INSERT INTO feedback_processed 
-            (feedback_id, clean_text, intents, sentiment_score, urgency_keyword_score, arr, embedding)
-            VALUES (:f_id, :c_text, :ints, :sent, :urg, :arr, :emb)
-        """)
-        
-        db.execute(insert_query, {
-            "f_id": feedback_id,
-            "c_text": clean_text,
-            "ints": json.dumps(intents),
-            "sent": 0.0,
-            "urg": 0.5,
-            "arr": arr_value,
-            "emb": str(embedding_vector) 
-        })
-        
+
+        arr_value = float(meta.get("arr", 0.0))
+        if arr_value == 0.0:
+            print(f"[AI PIPELINE] Warning: ARR is 0.0 for {feedback_id}. Either no monetary value existed in the row or extraction missed it.")
+
+        processed_record = FeedbackProcessed(
+            feedback_id=feedback_id,
+            clean_text=clean_text,
+            intents=intents,
+            sentiment_score=sentiment_score,
+            urgency_keyword_score=urgency_score,
+            arr=arr_value,
+            embedding=embedding_vector
+        )
+        db.add(processed_record)
+
         raw_record.processed = True
         db.commit()
-        
+
         print(f"[AI PIPELINE] Success! {feedback_id} classified as {intents}.")
 
     except Exception as e:
