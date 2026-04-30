@@ -1,34 +1,50 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { MetricCard } from '@/components/metric-card';
 import { ChartCard } from '@/components/chart-card';
 import { DataTable } from '@/components/data-table';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-
-const trendData = [
-  { month: 'Jan', feedback: 145, sentiment: 65 },
-  { month: 'Feb', feedback: 198, sentiment: 72 },
-  { month: 'Mar', feedback: 167, sentiment: 68 },
-  { month: 'Apr', feedback: 234, sentiment: 81 },
-  { month: 'May', feedback: 289, sentiment: 85 },
-  { month: 'Jun', feedback: 312, sentiment: 88 },
-];
-
-const sentimentData = [
-  { name: 'Positive', value: 58, fill: '#10b981' },
-  { name: 'Neutral', value: 28, fill: '#6b7280' },
-  { name: 'Negative', value: 14, fill: '#ef4444' },
-];
-
-const recentFeedback = [
-  { category: 'Performance', sentiment: 'Positive', count: '234', change: '+12%' },
-  { category: 'UI/UX', sentiment: 'Positive', count: '198', change: '+8%' },
-  { category: 'Bugs', sentiment: 'Negative', count: '45', change: '-15%' },
-  { category: 'Features', sentiment: 'Neutral', count: '167', change: '+22%' },
-];
+import api from '@/lib/api';
 
 export default function OverviewPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchOverview = async () => {
+      try {
+        const response = await api.get('/dashboard/overview');
+        setData(response.data);
+      } catch (error) {
+        console.error('Failed to fetch dashboard overview:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOverview();
+  }, []);
+
+  if (loading || !data) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-full min-h-[60vh] items-center justify-center">
+          <p className="text-muted-foreground animate-pulse font-medium">Loading dashboard...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const { kpis, monthly_trend, sentiment_distribution, categorical_breakdown } = data;
+
+  const sentimentData = [
+    { name: 'Positive', value: sentiment_distribution.positive, fill: '#10b981' },
+    { name: 'Neutral', value: sentiment_distribution.neutral, fill: '#6b7280' },
+    { name: 'Negative', value: sentiment_distribution.negative, fill: '#ef4444' },
+  ];
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
@@ -36,10 +52,10 @@ export default function OverviewPage() {
         <div>
           <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-6">Key Performance Indicators</p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <MetricCard label="Total Feedback" value="1,847" trend="12%" trendUp />
-            <MetricCard label="Positive Sentiment" value="58%" trend="5%" trendUp />
-            <MetricCard label="Active Issues" value="42" trend="8%" trendUp={false} />
-            <MetricCard label="Feature Requests" value="156" trend="18%" trendUp />
+            <MetricCard label="Total Feedback" value={kpis.total_feedback} />
+            <MetricCard label="Positive Sentiment" value={`${kpis.positive_sentiment_pct}%`} />
+            <MetricCard label="Active Issues" value={kpis.active_issues} />
+            <MetricCard label="Feature Requests" value={kpis.feature_requests} />
           </div>
         </div>
 
@@ -49,7 +65,7 @@ export default function OverviewPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <ChartCard title="Feedback Trend" className="lg:col-span-2">
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={trendData}>
+              <LineChart data={monthly_trend}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
                 <XAxis dataKey="month" stroke="#9ca3af" />
                 <YAxis stroke="#9ca3af" />
@@ -99,9 +115,8 @@ export default function OverviewPage() {
               { key: 'category', label: 'Category' },
               { key: 'sentiment', label: 'Sentiment' },
               { key: 'count', label: 'Count' },
-              { key: 'change', label: 'Change' },
             ]}
-            data={recentFeedback}
+            data={categorical_breakdown}
           />
           </ChartCard>
         </div>
