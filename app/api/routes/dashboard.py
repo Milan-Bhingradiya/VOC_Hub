@@ -1,3 +1,5 @@
+import uuid
+import random
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -7,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import (
-    FeedbackProcessed, FeedbackRaw, Opportunity, Theme, ThemeWeeklyCount,
+    FeedbackProcessed, FeedbackRaw, Opportunity, Theme, ThemeWeeklyCount, ThemeItem
 )
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
@@ -488,3 +490,94 @@ def get_bugs(db: Session = Depends(get_db)):
         "bug_resolution_trend": resolution_trend,
         "open_bugs":           open_bugs,
     }
+
+
+@router.post("/fake-data")
+def generate_fake_data(db: Session = Depends(get_db)):
+    """
+    Automatically generates 10 fake entries in all tables for testing.
+    """
+    intent_buckets = list(BUG_BUCKETS | FEATURE_BUCKETS | PAIN_POINT_BUCKETS)
+    priorities = ["Critical", "High", "Medium", "Low"]
+    
+    # Generate Themes
+    themes = []
+    for i in range(10):
+        theme = Theme(
+            intent_bucket=random.choice(intent_buckets),
+            name=f"Fake Theme {i}",
+            keywords=["fake", "test", f"keyword_{i}"],
+            description=f"This is a fake theme description for theme {i}",
+            first_seen=date.today() - timedelta(days=random.randint(10, 100)),
+            last_seen=date.today(),
+            item_count=random.randint(1, 20),
+            is_outlier=False
+        )
+        db.add(theme)
+        themes.append(theme)
+    db.flush() # flush to get theme ids
+    
+    for i, theme in enumerate(themes):
+        # Generate FeedbackRaw
+        raw_id = str(uuid.uuid4())
+        raw = FeedbackRaw(
+            id=raw_id,
+            source=random.choice(["Zendesk", "Intercom", "Jira", "Survey"]),
+            segment=random.choice(["Enterprise", "Mid-Market", "SMB"]),
+            customer_id=f"CUST-{random.randint(1000, 9999)}",
+            date=date.today() - timedelta(days=random.randint(0, 150)),
+            raw_text=f"This is a fake feedback message {i} for {theme.name}",
+            metadata_col={"fake": True},
+            processed=True
+        )
+        db.add(raw)
+        db.flush() # flush to avoid foreign key violation
+        
+        # Generate FeedbackProcessed
+        processed = FeedbackProcessed(
+            feedback_id=raw_id,
+            clean_text=f"Cleaned fake feedback message {i}",
+            intents=[theme.intent_bucket],
+            sentiment_score=random.uniform(-1.0, 1.0),
+            urgency_keyword_score=random.uniform(0.0, 1.0),
+            arr=random.uniform(1000, 50000),
+            embedding=[0.0] * 384 # Fake embedding
+        )
+        db.add(processed)
+        
+        # Generate ThemeItem linking FeedbackRaw and Theme
+        theme_item = ThemeItem(
+            theme_id=theme.id,
+            feedback_id=raw_id
+        )
+        db.add(theme_item)
+        
+        # Generate ThemeWeeklyCount
+        week_start = date.today() - timedelta(days=date.today().weekday())
+        weekly_count = ThemeWeeklyCount(
+            theme_id=theme.id,
+            week_start=week_start,
+            count=random.randint(1, 10)
+        )
+        db.add(weekly_count)
+        
+        # Generate Opportunity
+        opp = Opportunity(
+            theme_id=theme.id,
+            intent_bucket=theme.intent_bucket,
+            frequency=theme.item_count,
+            total_arr=random.uniform(5000, 100000),
+            avg_sentiment=random.uniform(-1.0, 1.0),
+            avg_urgency=random.uniform(0.0, 1.0),
+            avg_source_weight=random.uniform(0.5, 1.5),
+            velocity=random.uniform(-10.0, 10.0),
+            alignment_score=random.uniform(0.0, 1.0),
+            alignment_reason="Fake alignment reason",
+            opportunity_score=random.uniform(0.0, 100.0),
+            priority_label=random.choice(priorities),
+            updated_at=date.today()
+        )
+        db.add(opp)
+        
+    db.commit()
+    return {"message": "Successfully generated 10 fake entries in all tables."}
