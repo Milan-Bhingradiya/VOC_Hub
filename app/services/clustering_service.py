@@ -9,7 +9,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from groq import Groq
 
 from app.db.database import SessionLocal
-from app.db.models import FeedbackProcessed, FeedbackRaw, Theme, ThemeItem, ThemeWeeklyCount
+from app.db.models import FeedbackProcessed, FeedbackRaw, Theme, ThemeItem, ThemeWeeklyCount, Opportunity
 from app.core.config import settings
 from app.services.scoring_service import run_scoring_pipeline
 
@@ -136,24 +136,44 @@ def _cluster_bucket(bucket_name: str, items: list[dict], db: Session):
     """
     print(f"[CLUSTERING] Processing bucket: {bucket_name} ({len(items)} items)")
 
-    documents = [item["clean_text"] for item in items]
+    documents  = [item["clean_text"] for item in items]
     embeddings = np.array([item["embedding"] for item in items])
     vectorizer = CountVectorizer(stop_words="english", min_df=1, ngram_range=(1, 2))
 
+    n = len(items)
+
+    # UMAP requires n_neighbors < N (number of data points).
+    # Default is 15 — safe for large datasets but crashes on small buckets.
+    # We also switch init to 'random' when N is very small because spectral
+    # initialization needs to solve an eigenproblem that requires N > n_components.
+    umap_n_neighbors = min(n - 1, 15)
+    umap_init        = "random" if n < 20 else "spectral"
+
+    from umap import UMAP
+    umap_model = UMAP(
+        n_neighbors=umap_n_neighbors,
+        n_components=min(5, n - 1),   # n_components must also be < N
+        min_dist=0.0,
+        metric="cosine",
+        init=umap_init,
+        random_state=42,
+    )
+
     # Instantiate fresh per run — never reuse a fitted HDBSCAN instance
     hdbscan_model = HDBSCAN(
-        min_cluster_size=3,
-        min_samples=2,
-        metric='euclidean',
-        cluster_selection_method='eom',
-        prediction_data=True
+        min_cluster_size=min(3, max(2, n // 4)),  # scale with bucket size
+        min_samples=1,
+        metric="euclidean",
+        cluster_selection_method="eom",
+        prediction_data=True,
     )
 
     topic_model = BERTopic(
+        umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         vectorizer_model=vectorizer,
         calculate_probabilities=False,
-        verbose=False
+        verbose=False,
     )
 
     topics, _ = topic_model.fit_transform(documents, embeddings)
@@ -262,6 +282,7 @@ def run_clustering_pipeline():
         # Order matters: ThemeWeeklyCount and ThemeItem reference Theme via FK
         db.execute(delete(ThemeWeeklyCount))
         db.execute(delete(ThemeItem))
+        db.execute(delete(Opportunity))
         db.execute(delete(Theme))
         db.commit()
         print("[CLUSTERING] Cleared existing themes, theme_items, and theme_weekly_counts.")
