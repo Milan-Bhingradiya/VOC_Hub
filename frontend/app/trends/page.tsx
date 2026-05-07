@@ -1,8 +1,8 @@
 'use client';
 
-import { DashboardLayout } from '@/components/dashboard-layout';
-import { MetricCard } from '@/components/metric-card';
-import { ChartCard } from '@/components/chart-card';
+import { DashboardLayout } from '../../components/dashboard-layout';
+import { MetricCard } from '../../components/metric-card';
+import { ChartCard } from '../../components/chart-card';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const trendsData = [

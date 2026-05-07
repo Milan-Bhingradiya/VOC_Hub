@@ -1,9 +1,9 @@
 'use client';
 
-import { DashboardLayout } from '@/components/dashboard-layout';
-import { MetricCard } from '@/components/metric-card';
-import { ChartCard } from '@/components/chart-card';
-import { DataTable } from '@/components/data-table';
+import { DashboardLayout } from '../../components/dashboard-layout';
+import { MetricCard } from '../../components/metric-card';
+import { ChartCard } from '../../components/chart-card';
+import { DataTable } from '../../components/data-table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 
 const lostDealsData = [

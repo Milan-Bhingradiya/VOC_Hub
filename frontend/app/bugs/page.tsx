@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { DashboardLayout } from '@/components/dashboard-layout';
-import { MetricCard } from '@/components/metric-card';
-import { ChartCard } from '@/components/chart-card';
-import { DataTable } from '@/components/data-table';
+import { DashboardLayout } from '../../components/dashboard-layout';
+import { MetricCard } from '../../components/metric-card';
+import { ChartCard } from '../../components/chart-card';
+import { DataTable } from '../../components/data-table';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
-import api from '@/lib/api';
+import api from '../../lib/api';
 
 const severityColors: { [key: string]: string } = {
   Critical: '#ef4444',

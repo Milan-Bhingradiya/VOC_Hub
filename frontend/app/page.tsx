@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { DashboardLayout } from '@/components/dashboard-layout';
-import { MetricCard } from '@/components/metric-card';
-import { ChartCard } from '@/components/chart-card';
-import { DataTable } from '@/components/data-table';
+import { DashboardLayout } from '../components/dashboard-layout';
+import { MetricCard } from '../components/metric-card';
+import { DataTable } from '../components/data-table';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import api from '@/lib/api';
+import api from '../lib/api';
+import { ChartCard } from '../components/chart-card';
 
 export default function OverviewPage() {
   const [data, setData] = useState<any>(null);

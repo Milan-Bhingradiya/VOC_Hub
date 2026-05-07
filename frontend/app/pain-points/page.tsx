@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { DashboardLayout } from '@/components/dashboard-layout';
-import { MetricCard } from '@/components/metric-card';
-import { ChartCard } from '@/components/chart-card';
-import { DataTable } from '@/components/data-table';
+import { DashboardLayout } from '../../components/dashboard-layout';
+import { MetricCard } from '../../components/metric-card';
+import { ChartCard } from '../../components/chart-card';
+import { DataTable } from '../../components/data-table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import api from '@/lib/api';
+import api from '../../lib/api';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981', '#6b7280', '#ec4899', '#14b8a6', '#f43f5e', '#84cc16'];
 
