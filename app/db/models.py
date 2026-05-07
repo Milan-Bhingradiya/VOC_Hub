@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Date, Boolean, Integer, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
-from db.database import Base
+from app.db.database import Base
 
 
 class FeedbackRaw(Base):

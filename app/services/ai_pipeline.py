@@ -3,9 +3,9 @@ from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 from groq import Groq
 
-from db.database import SessionLocal
-from db.models import FeedbackRaw, FeedbackProcessed
-from core.config import settings
+from app.db.database import SessionLocal
+from app.db.models import FeedbackRaw, FeedbackProcessed
+from app.core.config import settings
 
 # Lazy-loaded model and client
 embedder = None

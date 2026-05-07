@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import and_, case, extract, func, select
 from sqlalchemy.orm import Session
 
-from db.database import get_db
-from db.models import (
+from app.db.database import get_db
+from app.db.models import (
     FeedbackProcessed, FeedbackRaw, Opportunity, Theme, ThemeWeeklyCount, ThemeItem
 )
 

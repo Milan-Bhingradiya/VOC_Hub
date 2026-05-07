@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 import pandas as pd
 import io
 
-from db.database import get_db
-from services.excel_processor import process_excel_with_llm
+from app.db.database import get_db
+from app.services.excel_processor import process_excel_with_llm
 
 router = APIRouter(prefix="/api/v1/feedback", tags=["Feedback"])
 
