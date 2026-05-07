@@ -3,11 +3,14 @@ import uuid
 import random
 from collections import defaultdict
 from datetime import date, timedelta
-
+from sentence_transformers import SentenceTransformer
+from sqlalchemy import text
 from fastapi import APIRouter, Depends
 from sqlalchemy import and_, case, extract, func, select
 from sqlalchemy.orm import Session
-
+from pydantic import BaseModel, Field
+from app.core.config import settings
+from groq import Groq
 from app.db.database import get_db
 from app.db.models import (
     FeedbackProcessed, FeedbackRaw, Opportunity, Theme, ThemeWeeklyCount, ThemeItem
@@ -21,6 +24,10 @@ PAIN_POINT_BUCKETS  = {"bug_report", "usability_complaint", "process_complaint"}
 MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun',
                'Jul','Aug','Sep','Oct','Nov','Dec']
 
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+class ChatQuery(BaseModel):
+    question: str = Field(..., description="The natural language question from the user")
 
 def _sentiment_label(score: float | None) -> str:
     if score is None:
@@ -614,6 +621,7 @@ def generate_matrix_fake_data(db: Session = Depends(get_db)):
 
 @router.delete("/wipe-data")
 def wipe_all_data(db: Session = Depends(get_db)):
+
     """
     Deletes ALL rows from all tables.
     Useful for resetting local/dev database.
@@ -640,3 +648,99 @@ def wipe_all_data(db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Failed to wipe database: {str(e)}"
         )
+    
+@router.post("/api/v1/chat")
+async def ask_your_data(query: ChatQuery, db: Session = Depends(get_db)):
+    """
+    Hybrid RAG Chatbot: 
+    1. Vector searches specific feedback.
+    2. Joins those matches to Theme/Opportunity for aggregate stats (frequency, ARR).
+    3. Pulls global top issues for broad questions.
+    """
+    try:
+        global embedder
+        print(f"💬 [CHATBOT] User asks: '{query.question}'")
+        question_embedding = embedder.encode(query.question).tolist()
+        search_query = text("""
+            SELECT fp.feedback_id, fp.clean_text, fp.intents, fp.arr, fr.source, fr.segment
+            FROM feedback_processed fp
+            JOIN feedback_raw fr ON fp.feedback_id = fr.id
+            ORDER BY fp.embedding <=> :q_emb
+            LIMIT 10
+        """)
+        
+        raw_results = db.execute(search_query, {"q_emb": str(question_embedding)}).fetchall()
+        
+        if not raw_results:
+            return {"answer": "I don't have any data matching that query yet."}
+        feedback_ids = [r.feedback_id for r in raw_results]
+
+        theme_results = db.execute(
+            select(
+                Theme.name, 
+                Theme.intent_bucket, 
+                Opportunity.frequency, 
+                Opportunity.total_arr, 
+                Opportunity.priority_label,
+                Opportunity.velocity
+            )
+            .join(ThemeItem, ThemeItem.theme_id == Theme.id)
+            .join(Opportunity, Opportunity.theme_id == Theme.id)
+            .where(ThemeItem.feedback_id.in_(feedback_ids))
+            .distinct()
+        ).all()
+
+        global_results = db.execute(
+            select(Theme.name, Opportunity.intent_bucket, Opportunity.frequency, Opportunity.priority_label)
+            .join(Theme, Theme.id == Opportunity.theme_id)
+            .order_by(Opportunity.opportunity_score.desc())
+            .limit(5)
+        ).all()
+
+        context_block = "=== RELEVANT AGGREGATED THEMES (Use this for frequency, ARR, or priority questions) ===\n"
+        for r in theme_results:
+            context_block += f"- Theme: {r.name} | Category: {r.intent_bucket} | Frequency: {r.frequency} | ARR at Risk: ${r.total_arr} | Priority: {r.priority_label}\n"
+
+        context_block += "\n=== RELEVANT SPECIFIC FEEDBACK (Use this for specific customer quotes/examples) ===\n"
+        for i, row in enumerate(raw_results):
+            context_block += f"[{i+1}] Segment: {row.segment} | Source: {row.source} | ARR: ${row.arr}\n"
+            context_block += f"    Feedback: {row.clean_text}\n"
+
+        context_block += "\n=== GLOBAL SYSTEM TOP 5 ISSUES (Use ONLY if user asks for general 'top', 'highest', or 'most frequent' issues overall) ===\n"
+        for r in global_results:
+            context_block += f"- {r.name} ({r.intent_bucket}) - {r.frequency} mentions, Priority: {r.priority_label}\n"
+
+        system_prompt = """
+        You are an AI Product Analyst for a B2B SaaS company. 
+        You are answering a question from leadership based on customer feedback.
+        
+        RULES:
+        1. Base your answer STRICTLY on the Context provided below. Do not make up information.
+        2. If the user asks about the "frequency", "priority", or "total impact" of a specific issue, use the 'RELEVANT AGGREGATED THEMES' data.
+        3. If the user asks for examples or specific details, use the 'RELEVANT SPECIFIC FEEDBACK' data.
+        4. If the user asks broad questions like "What are the most frequent bugs?", use the 'GLOBAL SYSTEM TOP 5 ISSUES'.
+        5. If the context does not contain the answer, say "I don't have enough data to answer that."
+        6. Cite the segments and ARR impact where relevant to show business value.
+        """
+        
+        client = Groq(api_key=settings.GROQ_API_KEY)
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant", # Or llama-3.3-70b-versatile for smarter routing
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Context Database Records:\n{context_block}\n\nUser Question: {query.question}"}
+            ]
+        )
+        
+        final_answer = response.choices[0].message.content
+
+        return {
+            "question": query.question,
+            "answer": final_answer,
+            "sources_used": len(raw_results),
+            "themes_referenced": len(theme_results)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
