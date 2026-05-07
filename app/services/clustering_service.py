@@ -8,10 +8,10 @@ from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
 from groq import Groq
 
-from app.db.database import SessionLocal
-from app.db.models import FeedbackProcessed, FeedbackRaw, Theme, ThemeItem, ThemeWeeklyCount, Opportunity
-from app.core.config import settings
-from app.services.scoring_service import run_scoring_pipeline
+from db.database import SessionLocal
+from db.models import FeedbackProcessed, FeedbackRaw, Theme, ThemeItem, ThemeWeeklyCount, Opportunity
+from core.config import settings
+from services.scoring_service import run_scoring_pipeline
 
 client = Groq(api_key=settings.GROQ_API_KEY)
 

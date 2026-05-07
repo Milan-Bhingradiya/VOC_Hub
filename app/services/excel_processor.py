@@ -6,10 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from groq import Groq
 
-from app.db.models import FeedbackRaw
-from app.core.config import settings
-from app.services.ai_pipeline import run_ai_pipeline
-from app.services.clustering_service import run_clustering_pipeline
+from db.models import FeedbackRaw
+from core.config import settings
+from services.ai_pipeline import run_ai_pipeline
+from services.clustering_service import run_clustering_pipeline
 
 client = Groq(api_key=settings.GROQ_API_KEY)
 

@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.api.routes import feedback, dashboard
+from core.config import settings
+from api.routes import feedback, dashboard
 
-from app.db.database import engine, Base
-from app.db import models 
+from db.database import engine, Base
+from db import models 
 
 
 app = FastAPI(title=settings.PROJECT_NAME)

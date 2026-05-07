@@ -2,8 +2,8 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
 
-from app.db.database import SessionLocal
-from app.db.models import (
+from db.database import SessionLocal
+from db.models import (
     FeedbackProcessed, FeedbackRaw, Theme, ThemeItem, Opportunity, ThemeWeeklyCount
 )
 

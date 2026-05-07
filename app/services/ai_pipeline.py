@@ -3,13 +3,28 @@ from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 from groq import Groq
 
-from app.db.database import SessionLocal
-from app.db.models import FeedbackRaw, FeedbackProcessed
-from app.core.config import settings
+from db.database import SessionLocal
+from db.models import FeedbackRaw, FeedbackProcessed
+from core.config import settings
 
-print("Loading embedding model (all-MiniLM-L6-v2)...")
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
-client = Groq(api_key=settings.GROQ_API_KEY)
+# Lazy-loaded model and client
+embedder = None
+client = None
+
+def get_embedder():
+    """Lazy load the embedding model on first use"""
+    global embedder
+    if embedder is None:
+        print("Loading embedding model (all-MiniLM-L6-v2)...")
+        embedder = SentenceTransformer('all-MiniLM-L6-v2')
+    return embedder
+
+def get_client():
+    """Lazy load the Groq client on first use"""
+    global client
+    if client is None:
+        client = Groq(api_key=settings.GROQ_API_KEY)
+    return client
 
 def run_ai_pipeline(feedback_id: str):
     db = SessionLocal()
@@ -52,7 +67,7 @@ def run_ai_pipeline(feedback_id: str):
         Base this purely on the business impact and time sensitivity implied by the text.
         """
 
-        response = client.chat.completions.create(
+        response = get_client().chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -65,7 +80,7 @@ def run_ai_pipeline(feedback_id: str):
         clean_text = ai_result.get("clean_text", raw_record.raw_text)
         intents = ai_result.get("intents", ["unclear"])
 
-        embedding_vector = embedder.encode(clean_text).tolist()
+        embedding_vector = get_embedder().encode(clean_text).tolist()
 
         urgency_score = round(max(0.0, min(1.0, float(ai_result.get("urgency_score", 0.0)))), 3)
         sentiment_score = round(max(-1.0, min(1.0, float(ai_result.get("sentiment_score", 0.0)))), 3)
